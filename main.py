@@ -1,26 +1,6 @@
-# from copy import deepcopy
-
-# # =========================
-# # DATA
-# # =========================
-
-# origin = ['CGK', 'UPG']
-
-# destination = ['BPN', 'SUB', 'KNO', 'UPG', 'DJJ']
-
-# M = 999999999
-
-# matrix = [
-#     [24000, 22500, 30000, 28000, 45000],  # CGK
-#     [M, M, M, M, 18000]                   # UPG
-# ]
-
-# need = [2000, 3000, 2000, 2500, 2500]
-
-# availability = [11500, 2500]
-
 from data_distribusi_vaksin.data import *
 from copy import deepcopy
+
 # =========================
 # COPY DATA AGAR DATA ASLI
 # TIDAK BERUBAH
