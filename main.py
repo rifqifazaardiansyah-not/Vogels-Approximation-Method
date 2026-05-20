@@ -1,154 +1,224 @@
-from problems.transport_problem import *
+# from copy import deepcopy
 
-result_matrix = []
+# # =========================
+# # DATA
+# # =========================
+
+# origin = ['CGK', 'UPG']
+
+# destination = ['BPN', 'SUB', 'KNO', 'UPG', 'DJJ']
+
+# M = 999999999
+
+# matrix = [
+#     [24000, 22500, 30000, 28000, 45000],  # CGK
+#     [M, M, M, M, 18000]                   # UPG
+# ]
+
+# need = [2000, 3000, 2000, 2500, 2500]
+
+# availability = [11500, 2500]
+
+from data_distribusi_vaksin.data import *
+from copy import deepcopy
+# =========================
+# COPY DATA AGAR DATA ASLI
+# TIDAK BERUBAH
+# =========================
+
+matrix = deepcopy(matrix)
+need = deepcopy(need)
+availability = deepcopy(availability)
+
+# =========================
+# RESULT MATRIX
+# =========================
+
+allocation_matrix = []
+cost_matrix = []
 
 
 def reset_result_matrix():
-    column = []
-    for i in range(0, len(matrix)):
-        for j in range(0, len(matrix[0])):
-            column.append(0)
-        result_matrix.append(column.copy())
-        column.clear()
+    for i in range(len(matrix)):
+        allocation_matrix.append([0] * len(matrix[0]))
+        cost_matrix.append([0] * len(matrix[0]))
 
 
-def sum_without_none(iterable):
-    result = 0
-    for number in iterable:
-        if number is not None:
-            result += number
-    return result
+# =========================
+# VAM PENALTY
+# =========================
+
+def calculate_penalty(costs):
+    valid_costs = [x for x in costs if x is not None]
+
+    if len(valid_costs) == 0:
+        return -1
+
+    if len(valid_costs) == 1:
+        return valid_costs[0]
+
+    valid_costs.sort()
+
+    return valid_costs[1] - valid_costs[0]
 
 
-def insert_artificial_origin():
-    origin.append('dummy')
-    line = []
-    for i in range(0, len(destination)):
-        line.append(0)
-    matrix.append(line)
-    availability.append(sum(need) - sum(availability))
-
-
-def insert_artificial_destination():
-    destination.append('dummy')
-    for line in matrix:
-        line.append(999)
-    need.append(sum(availability) - sum(need))
-
+# =========================
+# HITUNG PENALTY
+# =========================
 
 def calculate_penalties():
-    origin_penalty = []
-    destination_penalty = []
-    column = []
 
-    for i, line in enumerate(matrix):
-        origin_penalty.append(difference_lower_costs(iterable_without_none(line.copy(), need)))
+    row_penalties = []
+    col_penalties = []
 
-    for j in range(0, len(matrix[0])):
-        for k in range(0, len(matrix)):
-            column.append(matrix[k][j])
-        destination_penalty.append(difference_lower_costs(iterable_without_none(column, availability)))
-        column.clear()
+    # ROW PENALTY
+    for i in range(len(matrix)):
 
-    return [origin_penalty, destination_penalty]
+        row = []
 
+        for j in range(len(matrix[0])):
 
-def difference_lower_costs(iterable):
+            if need[j] is not None and matrix[i][j] is not None:
+                row.append(matrix[i][j])
 
-    best = min(iterable)
-    iterable.remove(best)
+        row_penalties.append(calculate_penalty(row))
 
-    if len(iterable) == 0:
-        return best
+    # COLUMN PENALTY
+    for j in range(len(matrix[0])):
 
-    alternative = min(iterable)
+        column = []
 
-    return abs(alternative - best)
+        for i in range(len(matrix)):
 
+            if availability[i] is not None and matrix[i][j] is not None:
+                column.append(matrix[i][j])
 
-def get_column(index):
-    column = []
-    for j in range(0, len(matrix)):
-        column.append(matrix[j][index])
-    return column
+        col_penalties.append(calculate_penalty(column))
+
+    return row_penalties, col_penalties
 
 
-def iterable_without_none(iterable, comparable=None):
-    iterable_remove_none = []
-    for i, x in enumerate(iterable):
-        if comparable is not None:
-            if comparable[i] is not None:
-                iterable_remove_none.append(x)
-        else:
-            if iterable[i] is not None:
-                iterable_remove_none.append(x)
-    return iterable_remove_none
+# =========================
+# PILIH CELL TERBAIK
+# =========================
 
+def find_best_cell(row_penalties, col_penalties):
 
-def find_lower_cell(origin_penalty, destination_penalty):
-    result = []
+    max_row_penalty = max(row_penalties)
+    max_col_penalty = max(col_penalties)
 
-    max_difference_origin = max(origin_penalty)
-    max_difference_destination = max(destination_penalty)
+    # PILIH ROW
+    if max_row_penalty >= max_col_penalty:
 
-    if max_difference_origin < max_difference_destination:
-        index_max_difference = destination_penalty.index(max_difference_destination)
-        result.append(index_max_difference)
-        column = get_column(index_max_difference)
-        lower_cost_value = min(iterable_without_none(column, availability))
-        result.append(lower_cost_value)
-        result.append(column.index(lower_cost_value))
+        row_index = row_penalties.index(max_row_penalty)
+
+        min_cost = M
+        col_index = -1
+
+        for j in range(len(matrix[0])):
+
+            if need[j] is not None and matrix[row_index][j] is not None:
+
+                if matrix[row_index][j] < min_cost:
+                    min_cost = matrix[row_index][j]
+                    col_index = j
+
+        return row_index, col_index
+
+    # PILIH COLUMN
     else:
-        index_max_difference = origin_penalty.index(max_difference_origin)
-        result.append(index_max_difference)
-        line = matrix[index_max_difference]
-        lower_cost_value = min(iterable_without_none(line, need))
-        result.append(lower_cost_value)
-        result.append(line.index(lower_cost_value))
-        result.reverse()
 
-    return result
+        col_index = col_penalties.index(max_col_penalty)
 
+        min_cost = M
+        row_index = -1
 
-def calculate_result():
-    z = 0
-    for i in range(0, len(result_matrix)):
-        for j in range(0, len(result_matrix[0])):
-            z += result_matrix[i][j]
-    return z
+        for i in range(len(matrix)):
+
+            if availability[i] is not None and matrix[i][col_index] is not None:
+
+                if matrix[i][col_index] < min_cost:
+                    min_cost = matrix[i][col_index]
+                    row_index = i
+
+        return row_index, col_index
 
 
-def main():
-    if sum(need) > sum(availability):
-        insert_artificial_origin()
-    elif sum(availability) > sum(need):
-        insert_artificial_destination()
+# =========================
+# TOTAL COST
+# =========================
+
+def calculate_total_cost():
+
+    total = 0
+
+    for i in range(len(cost_matrix)):
+        for j in range(len(cost_matrix[0])):
+            total += cost_matrix[i][j]
+
+    return total
+
+
+# =========================
+# MAIN VAM
+# =========================
+
+def vam():
 
     reset_result_matrix()
 
-    while (sum_without_none(availability) + sum_without_none(need)) != 0:
+    while True:
 
-        origin_penalty, destination_penalty = calculate_penalties()
-        index_column_need, lower_cost_value, index_line_availability = find_lower_cell(
-            origin_penalty, destination_penalty)
+        # STOP JIKA SEMUA SUDAH SELESAI
+        if all(x is None for x in need):
+            break
 
-        value_availability = availability[index_line_availability]
-        value_need = need[index_column_need]
+        row_penalties, col_penalties = calculate_penalties()
 
-        if value_need < value_availability:
-            result_matrix[index_line_availability][index_column_need] = lower_cost_value * value_need
-            for i in range(0, len(matrix)):
-                matrix[i][index_column_need] = 0
-            need[index_column_need] = None
-            availability[index_line_availability] -= value_need
-        else:
-            result_matrix[index_line_availability][index_column_need] = lower_cost_value * value_availability
-            for i in range(0, len(matrix[0])):
-                matrix[index_line_availability][i] = 0
-            availability[index_line_availability] = None
-            need[index_column_need] -= value_availability
+        row, col = find_best_cell(row_penalties, col_penalties)
+
+        qty = min(availability[row], need[col])
+
+        # SIMPAN ALOKASI
+        allocation_matrix[row][col] = qty
+
+        # SIMPAN COST
+        cost_matrix[row][col] = qty * matrix[row][col]
+
+        # UPDATE SUPPLY & DEMAND
+        availability[row] -= qty
+        need[col] -= qty
+
+        # JIKA SUPPLY HABIS
+        if availability[row] == 0:
+
+            availability[row] = None
+
+            for j in range(len(matrix[0])):
+                matrix[row][j] = None
+
+        # JIKA DEMAND HABIS
+        if need[col] == 0:
+
+            need[col] = None
+
+            for i in range(len(matrix)):
+                matrix[i][col] = None
 
 
-main()
-print(result_matrix)
-print(calculate_result())
+# =========================
+# RUN
+# =========================
+
+vam()
+
+print("=== ALOKASI ===")
+for row in allocation_matrix:
+    print(row)
+
+print("\n=== COST MATRIX ===")
+for row in cost_matrix:
+    print(row)
+
+print("\nTOTAL COST:")
+print(calculate_total_cost())
