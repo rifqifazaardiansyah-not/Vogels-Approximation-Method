@@ -75,3 +75,9 @@ python main.py
 ## :balance_scale: License
 
 [MIT License](https://github.com/eppica/Vogels-Approximation-Method/blob/main/LICENSE)
+
+## Attribution
+
+- **Source:** Forked from https://github.com/eppica/Vogels-Approximation-Method
+- **Modifications:** This repository contains local modifications to the original implementation (e.g. changes in `main.py` for VAM cost calculation). The original code is under the MIT License; the LICENSE file from the original project is retained in this repository.
+
