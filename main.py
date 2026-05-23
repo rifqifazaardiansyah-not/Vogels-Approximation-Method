@@ -1,4 +1,4 @@
-from data_distribusi_vaksin.data import *
+from data.data import *
 from copy import deepcopy
 
 # =========================
@@ -79,49 +79,100 @@ def calculate_penalties():
 
 
 # =========================
-# PILIH CELL TERBAIK
+# HELPER: CARI SEL TERBAIK DALAM SATU BARIS
+# =========================
+
+def best_cell_in_row(row_index):
+    """
+    Kembalikan (min_cost, col_index) dari sel valid di baris row_index.
+    """
+    min_cost = float('inf')
+    col_index = -1
+    for j in range(len(matrix[0])):
+        if need[j] is not None and matrix[row_index][j] is not None:
+            if matrix[row_index][j] < min_cost:
+                min_cost = matrix[row_index][j]
+                col_index = j
+    return min_cost, col_index
+
+
+# =========================
+# HELPER: CARI SEL TERBAIK DALAM SATU KOLOM
+# =========================
+
+def best_cell_in_col(col_index):
+    """
+    Kembalikan (min_cost, row_index) dari sel valid di kolom col_index.
+    """
+    min_cost = float('inf')
+    row_index = -1
+    for i in range(len(matrix)):
+        if availability[i] is not None and matrix[i][col_index] is not None:
+            if matrix[i][col_index] < min_cost:
+                min_cost = matrix[i][col_index]
+                row_index = i
+    return min_cost, row_index
+
+
+# =========================
+# HELPER: HITUNG ALOKASI MAKSIMUM PADA SEL (i, j)
+# =========================
+
+def max_allocation(row_index, col_index):
+    """
+    Jumlah unit yang bisa dialokasikan pada sel (row_index, col_index),
+    yaitu min(availability[row_index], need[col_index]).
+    """
+    return min(availability[row_index], need[col_index])
+
+
+# =========================
+# PILIH CELL TERBAIK (dengan tie-breaking 3 level)
 # =========================
 
 def find_best_cell(row_penalties, col_penalties):
+    """
+    Aturan tie-breaking (urutan prioritas):
+      1. Penalti terbesar → kandidat baris/kolom yang penaltinya = max_penalty
+      2. Di antara kandidat, pilih yang memiliki biaya sel terkecil
+      3. Jika biaya juga sama, pilih yang memungkinkan alokasi terbesar
+      4. Jika alokasi juga sama, pilih baris/kolom paling atas / paling kiri
+    """
+    max_penalty = max(max(row_penalties), max(col_penalties))
 
-    max_row_penalty = max(row_penalties)
-    max_col_penalty = max(col_penalties)
+    # Kumpulkan semua kandidat: ('row', i) atau ('col', j)
+    candidates = []
 
-    # PILIH ROW
-    if max_row_penalty >= max_col_penalty:
+    for i, p in enumerate(row_penalties):
+        if p == max_penalty and availability[i] is not None:
+            min_cost, best_col = best_cell_in_row(i)
+            if best_col != -1:
+                alloc = max_allocation(i, best_col)
+                # Kandidat baris: tipe, indeks baris, indeks kolom terbaik,
+                #                 biaya terkecil, alokasi maks, indeks urut (i)
+                candidates.append(('row', i, best_col, min_cost, alloc, i))
 
-        row_index = row_penalties.index(max_row_penalty)
+    for j, p in enumerate(col_penalties):
+        if p == max_penalty and need[j] is not None:
+            min_cost, best_row = best_cell_in_col(j)
+            if best_row != -1:
+                alloc = max_allocation(best_row, j)
+                # Kandidat kolom: tipe, indeks kolom, indeks baris terbaik,
+                #                 biaya terkecil, alokasi maks, indeks urut (j)
+                candidates.append(('col', j, best_row, min_cost, alloc, j))
 
-        min_cost = M
-        col_index = -1
+    # Tie-breaking:
+    #   key[0] = min_cost      → lebih kecil lebih baik  (ascending)
+    #   key[1] = -alloc        → lebih besar lebih baik  (descending → pakai negatif)
+    #   key[2] = urut_index    → lebih kecil lebih baik  (baris atas / kolom kiri)
+    candidates.sort(key=lambda c: (c[3], -c[4], c[5]))
 
-        for j in range(len(matrix[0])):
+    winner = candidates[0]
 
-            if need[j] is not None and matrix[row_index][j] is not None:
-
-                if matrix[row_index][j] < min_cost:
-                    min_cost = matrix[row_index][j]
-                    col_index = j
-
-        return row_index, col_index
-
-    # PILIH COLUMN
+    if winner[0] == 'row':
+        return winner[1], winner[2]   # (row_index, col_index)
     else:
-
-        col_index = col_penalties.index(max_col_penalty)
-
-        min_cost = M
-        row_index = -1
-
-        for i in range(len(matrix)):
-
-            if availability[i] is not None and matrix[i][col_index] is not None:
-
-                if matrix[i][col_index] < min_cost:
-                    min_cost = matrix[i][col_index]
-                    row_index = i
-
-        return row_index, col_index
+        return winner[2], winner[1]   # (row_index, col_index)
 
 
 # =========================
