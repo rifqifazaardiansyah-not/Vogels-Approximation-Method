@@ -1,4 +1,4 @@
-from data.data import *
+from data.data2 import *
 from copy import deepcopy
 
 # =========================
