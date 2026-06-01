@@ -1,5 +1,9 @@
 from copy import deepcopy
+import time
 
+# ============================================================
+# DEFAULT DATA - DAPAT DIGANTI DENGAN DATA LAIN
+# ============================================================
 origin      = ['Vendor 1', 'Vendor 2', 'Vendor 3', 'Vendor 4', 'Vendor 5']
 destination = ['Pekanbaru', 'Jambi', 'Padang', 'Palembang', 'Dummy']
 
@@ -14,17 +18,7 @@ cost_table = [
 need_orig         = [17000, 12000, 10000, 10000, 2000]
 availability_orig = [8000, 15000, 12000, 8000, 8000]
 
-ROWS = 5
-COLS = 5
-
-# ============================================================
 # Alokasi VAM manual yang sudah dikoreksi:
-# V1 → Padang: 8000
-# V2 → Pekanbaru: 15000
-# V3 → Pekanbaru: 2000, Jambi: 8000, Padang: 2000 (total=12000 ✓)
-# V4 → Jambi: 4000, Palembang: 4000               (total=8000  ✓)
-# V5 → Palembang: 6000, Dummy: 2000               (total=8000  ✓)
-# ============================================================
 alloc_vam = [
     [0,     0,     8000, 0,    0   ],  # Vendor 1
     [15000, 0,     0,    0,    0   ],  # Vendor 2
@@ -35,17 +29,18 @@ alloc_vam = [
 
 # ── helpers ─────────────────────────────────────────────────
 
-def _total_cost(alloc):
+def _total_cost(alloc, cost_table, ROWS, COLS):
     return sum(alloc[i][j]*cost_table[i][j]
                for i in range(ROWS) for j in range(COLS))
 
-def _basic_cells(alloc):
+def _basic_cells(alloc, ROWS, COLS):
     return [(i,j) for i in range(ROWS) for j in range(COLS) if alloc[i][j]>0]
 
-def _non_basic_cells(alloc):
+def _non_basic_cells(alloc, ROWS, COLS):
     return [(i,j) for i in range(ROWS) for j in range(COLS) if alloc[i][j]==0]
 
-def _print_table(alloc, eps=None, label="ALOKASI"):
+def _print_table(alloc, cost_table, origin, destination, need_orig, 
+                 availability_orig, ROWS, COLS, eps=None, label="ALOKASI"):
     es  = set(eps) if eps else set()
     cw  = 11
     print(f"\n{'─'*70}")
@@ -67,11 +62,11 @@ def _print_table(alloc, eps=None, label="ALOKASI"):
               + f"  {availability_orig[i]:>8,}")
     print(f"  {'Demand':<14}"
           + "".join(f"{d:>{cw},}" for d in need_orig))
-    print(f"\n  Total Cost : Rp {_total_cost(alloc):>15,.0f}")
+    print(f"\n  Total Cost : Rp {_total_cost(alloc, cost_table, ROWS, COLS):>15,.0f}")
 
 # ── verifikasi ───────────────────────────────────────────────
 
-def _verify(alloc):
+def _verify(alloc, origin, destination, need_orig, availability_orig, ROWS, COLS):
     print("  Cek supply :")
     ok_all = True
     for i in range(ROWS):
@@ -89,29 +84,65 @@ def _verify(alloc):
 
 # ── loop finder ──────────────────────────────────────────────
 
-def _find_loop(start, basic_set):
-    def dfs(path, direction):
-        ci, cj = path[-1]
+def _find_loop(start, basic_set, ROWS, COLS):
+    """
+    Cari closed loop dengan DFS optimized.
+    Gunakan depth limit dan early termination yang ketat.
+    """
+    si, sj = start
+    max_depth = min(ROWS + COLS, 12)  # Limit depth untuk prevent exponential
+    
+    def dfs(ci, cj, direction, path, depth):
+        # Early termination checks
+        if depth > max_depth:
+            return None
+        if len(path) > max_depth:
+            return None
+            
+        # Cek apakah sudah kembali ke start dengan path minimal length 4
         if len(path) >= 4:
-            si, sj = start
-            if direction=='H' and ci==si: return path
-            if direction=='V' and cj==sj: return path
-        if len(path) > (ROWS+COLS)*2: return None
-        nd    = 'V' if direction=='H' else 'H'
-        moves = ([(ci,j) for j in range(COLS) if j!=cj]
-                 if direction=='H'
-                 else [(i,cj) for i in range(ROWS) if i!=ci])
-        for nxt in moves:
-            if nxt==start and len(path)>=3:
-                r = dfs(path+[nxt], nd)
-                if r: return r
-            elif nxt in basic_set and nxt not in path:
-                r = dfs(path+[nxt], nd)
-                if r: return r
+            if direction == 'H' and ci == si:
+                return path
+            if direction == 'V' and cj == sj:
+                return path
+        
+        # Alternate direction
+        nd = 'V' if direction == 'H' else 'H'
+        
+        if direction == 'H':
+            # Horizontal: cari cell di row yang sama
+            for j in range(COLS):
+                if j == cj:
+                    continue
+                nxt = (ci, j)
+                # Cek return ke start
+                if nxt == start and len(path) >= 3:
+                    return path + [nxt]
+                # Cek basic cell dan belum di path
+                if nxt in basic_set and nxt not in path:
+                    r = dfs(ci, j, nd, path + [nxt], depth + 1)
+                    if r:
+                        return r
+        else:
+            # Vertical: cari cell di col yang sama
+            for i in range(ROWS):
+                if i == ci:
+                    continue
+                nxt = (i, cj)
+                # Cek return ke start
+                if nxt == start and len(path) >= 3:
+                    return path + [nxt]
+                # Cek basic cell dan belum di path
+                if nxt in basic_set and nxt not in path:
+                    r = dfs(i, cj, nd, path + [nxt], depth + 1)
+                    if r:
+                        return r
+        
         return None
-    return dfs([start], 'H')
+    
+    return dfs(si, sj, 'H', [start], 0)
 
-def _improvement_index(loop):
+def _improvement_index(loop, cost_table):
     nodes = loop if loop[-1]!=loop[0] else loop[:-1]
     signed, idx = [], 0
     for k, cell in enumerate(nodes):
@@ -128,10 +159,10 @@ def _reallocate(alloc, signed_loop):
         else:      na[i][j] -= theta
     return na, theta
 
-def _fix_degeneracy(alloc, eps):
+def _fix_degeneracy(alloc, origin, destination, eps, ROWS, COLS):
     req = ROWS+COLS-1
     eps[:] = [c for c in eps if alloc[c[0]][c[1]]==0]
-    tot = len(_basic_cells(alloc))+len(eps)
+    tot = len(_basic_cells(alloc, ROWS, COLS))+len(eps)
     if tot < req:
         d = req-tot
         print(f"\n  [DEGENERASI] basic={tot}, butuh={req}. Tambah {d} sel epsilon.")
@@ -146,124 +177,227 @@ def _fix_degeneracy(alloc, eps):
             if d==0: break
     return alloc
 
-# ── Stepping Stone utama ─────────────────────────────────────
+# ── Stepping Stone GENERIC ──────────────────────────────────
 
-def stepping_stone(alloc_init):
+def stepping_stone(origin, destination, cost_table, need_orig, availability_orig, 
+                   alloc_init, ROWS=None, COLS=None, show_details=True):
+    """
+    Implementasi Stepping Stone Method untuk masalah transportasi.
+    
+    Parameter:
+    -----------
+    origin : list
+        Nama-nama sumber (vendors/pabrik)
+    destination : list
+        Nama-nama tujuan (kota/warehouse)
+    cost_table : list of lists
+        Tabel biaya transportasi
+    need_orig : list
+        Kebutuhan/demand untuk setiap tujuan
+    availability_orig : list
+        Ketersediaan/supply dari setiap sumber
+    alloc_init : list of lists
+        Alokasi awal dari VAM (sudah feasible)
+    ROWS : int (optional)
+        Jumlah baris (sumber). Jika None, diambil dari len(origin)
+    COLS : int (optional)
+        Jumlah kolom (tujuan). Jika None, diambil dari len(destination)
+    show_details : bool (default True)
+        Jika True, tampilkan detail iterasi. Jika False, tampilkan ringkasan saja.
+    
+    Return:
+    -------
+    tuple : (alokasi_optimal, total_biaya_optimal)
+    """
+    
+    if ROWS is None:
+        ROWS = len(origin)
+    if COLS is None:
+        COLS = len(destination)
+    
     alloc = deepcopy(alloc_init)
     eps   = []
     itr   = 0
+    MAX_ITER = 20  # Limit iterasi untuk debug
 
-    print("\n" + "="*70)
-    print("         S T E P P I N G   S T O N E   M E T H O D")
-    print("="*70)
-    _print_table(alloc, label="SOLUSI AWAL (VAM MANUAL TERKOREKSI)")
+    if show_details:
+        print("\n" + "="*70)
+        print("         S T E P P I N G   S T O N E   M E T H O D")
+        print("="*70)
+        _print_table(alloc, cost_table, origin, destination, need_orig, 
+                    availability_orig, ROWS, COLS, label="SOLUSI AWAL (VAM)")
 
     while True:
         itr += 1
-        print(f"\n{'═'*70}")
-        print(f"  ITERASI {itr}")
-        print(f"{'═'*70}")
+        if itr > MAX_ITER:
+            print(f"\n  [PERINGATAN] Iterasi melebihi {MAX_ITER}. Stop untuk prevent infinite loop.")
+            break
+            
+        if show_details:
+            print(f"\n{'═'*70}")
+            print(f"  ITERASI {itr}")
+            print(f"{'═'*70}")
+        else:
+            # Print progress counter setiap 50 iterasi kalau show_details=False
+            if itr % 50 == 0:
+                print(f"  Progress: iterasi {itr}...")
 
-        alloc     = _fix_degeneracy(alloc, eps)
-        basic     = _basic_cells(alloc)
-        non_basic = _non_basic_cells(alloc)
+
+        alloc     = _fix_degeneracy(alloc, origin, destination, eps, ROWS, COLS)
+        basic     = _basic_cells(alloc, ROWS, COLS)
+        non_basic = _non_basic_cells(alloc, ROWS, COLS)
         bset      = set(basic)|set(eps)
 
-        print(f"\n  Jumlah sel basic    : {len(bset)}  "
-              f"(syarat m+n-1 = {ROWS}+{COLS}-1 = {ROWS+COLS-1})")
-        print(f"  Sel Basic    : " +
-              ", ".join(f"{origin[i]}→{destination[j]}" for i,j in sorted(bset)))
-        print(f"\n  Evaluasi improvement index tiap sel non-basic:")
-        print(f"\n  {'Sel (dari→ke)':<32} {'Index':>9}   Loop")
-        print(f"  {'─'*32} {'─'*9}   {'─'*50}")
+        if show_details:
+            print(f"\n  Jumlah sel basic    : {len(bset)}  "
+                  f"(syarat m+n-1 = {ROWS}+{COLS}-1 = {ROWS+COLS-1})")
+            print(f"  Sel Basic    : " +
+                  ", ".join(f"{origin[i]}→{destination[j]}" for i,j in sorted(bset)))
+            print(f"\n  Evaluasi improvement index tiap sel non-basic:")
+            print(f"\n  {'Sel (dari→ke)':<32} {'Index':>9}   Loop")
+            print(f"  {'─'*32} {'─'*9}   {'─'*50}")
 
         evals = []
         for cell in non_basic:
             if cell in eps: continue
             i, j  = cell
             label = f"{origin[i]}→{destination[j]}"
-            loop  = _find_loop(cell, bset)
+            loop  = _find_loop(cell, bset, ROWS, COLS)
             if not loop:
-                print(f"  {label:<32} {'N/A':>9}   Loop tidak ditemukan")
+                if show_details:
+                    print(f"  {label:<32} {'N/A':>9}   Loop tidak ditemukan")
                 continue
-            idx, signed = _improvement_index(loop)
-            lstr = " → ".join(
-                f"[{'+'if s=='+' else '−'}]{origin[r]}→{destination[c]}"
-                for (r,c),s in signed)
-            flag = "  ◄ NEGATIF" if idx<0 else ""
-            print(f"  {label:<32} {idx:>9,.0f}   {lstr}{flag}")
+            idx, signed = _improvement_index(loop, cost_table)
+            if show_details:
+                lstr = " → ".join(
+                    f"[{'+'if s=='+' else '−'}]{origin[r]}→{destination[c]}"
+                    for (r,c),s in signed)
+                flag = "  ◄ NEGATIF" if idx<0 else ""
+                print(f"  {label:<32} {idx:>9,.0f}   {lstr}{flag}")
             evals.append((idx, loop, signed, cell))
 
         neg = [x for x in evals if x[0]<0]
 
         if not neg:
-            print(f"\n  {'─'*68}")
-            print(f"  ✓ Semua improvement index ≥ 0")
-            print(f"  ✓ SOLUSI SUDAH OPTIMAL! Tidak perlu iterasi lagi.")
+            if show_details:
+                print(f"\n  {'─'*68}")
+                print(f"  ✓ Semua improvement index ≥ 0")
+                print(f"  ✓ SOLUSI SUDAH OPTIMAL! Tidak perlu iterasi lagi.")
             break
 
         neg.sort(key=lambda x: x[0])
-        bi, bl, bs, bc = neg[0]
+        
+        # Cari cell dengan theta > 0 untuk avoid cycling pada theta=0
+        selected = None
+        for bi, bl, bs, bc in neg:
+            minus_vals = [alloc[r][c] for (r,c),s in bs if s=='-']
+            theta_test = min(minus_vals) if minus_vals else 0
+            if theta_test > 0:
+                selected = (bi, bl, bs, bc)
+                break
+        
+        if not selected:
+            if show_details:
+                print(f"\n  {'─'*68}")
+                print(f"  ⚠ Semua sel negatif punya θ=0 (degenerate). Iterasi berhenti.")
+            break
+        
+        bi, bl, bs, bc = selected
         ri, rj = bc
-        print(f"\n  {'─'*68}")
-        print(f"  ► Sel masuk  : {origin[ri]} → {destination[rj]}")
-        print(f"    Index      : {bi:,.0f}  (paling negatif → diprioritaskan)")
-        print(f"    Loop       : " + " → ".join(
-            f"[{'+'if s=='+' else '−'}]{origin[r]}→{destination[c]}"
-            for (r,c),s in bs))
+        if show_details:
+            print(f"\n  {'─'*68}")
+            print(f"  ► Sel masuk  : {origin[ri]} → {destination[rj]}")
+            print(f"    Index      : {bi:,.0f}  (paling negatif → diprioritaskan)")
+            print(f"    Loop       : " + " → ".join(
+                f"[{'+'if s=='+' else '−'}]{origin[r]}→{destination[c]}"
+                for (r,c),s in bs))
 
-        minus_info = [(alloc[r][c], origin[r], destination[c])
-                      for (r,c),s in bs if s=='-']
-        print(f"    Nilai sel (−): " +
-              ", ".join(f"{origin}→{dest}={qty:,}"
-                        for qty,origin,dest in minus_info))
-        theta = min(q for q,_,_ in minus_info)
-        print(f"    θ = min({', '.join(str(q) for q,_,_ in minus_info)}) = {theta:,}")
+            minus_info = [(alloc[r][c], origin[r], destination[c])
+                          for (r,c),s in bs if s=='-']
+            print(f"    Nilai sel (−): " +
+                  ", ".join(f"{origin}→{dest}={qty:,}"
+                            for qty,origin,dest in minus_info))
+            theta = min(q for q,_,_ in minus_info)
+            print(f"    θ = min({', '.join(str(q) for q,_,_ in minus_info)}) = {theta:,}")
 
         if bc in eps: eps.remove(bc)
         alloc, _ = _reallocate(alloc, bs)
-        _print_table(alloc, eps, label=f"ALOKASI SETELAH ITERASI {itr}")
+        if show_details:
+            _print_table(alloc, cost_table, origin, destination, need_orig, 
+                        availability_orig, ROWS, COLS, eps, 
+                        label=f"ALOKASI SETELAH ITERASI {itr}")
 
     # Hasil akhir
-    print("\n" + "="*70)
-    print("  HASIL AKHIR — SOLUSI OPTIMAL")
-    print("="*70)
-    _print_table(alloc, label="TABEL ALOKASI OPTIMAL")
+    if show_details:
+        print("\n" + "="*70)
+        print("  HASIL AKHIR — SOLUSI OPTIMAL")
+        print("="*70)
+        _print_table(alloc, cost_table, origin, destination, need_orig, 
+                    availability_orig, ROWS, COLS, label="TABEL ALOKASI OPTIMAL")
 
-    print(f"\n  Rincian rute aktif:")
-    print(f"  {'Rute':<32} {'Qty':>8}  {'Tarif/kg':>9}  {'Subtotal':>14}")
-    print(f"  {'─'*32} {'─'*8}  {'─'*9}  {'─'*14}")
+        print(f"\n  Rincian rute aktif:")
+        print(f"  {'Rute':<32} {'Qty':>8}  {'Tarif/kg':>9}  {'Subtotal':>14}")
+        print(f"  {'─'*32} {'─'*8}  {'─'*9}  {'─'*14}")
+    
     grand = 0
+    routes = []
     for i in range(ROWS):
         for j in range(COLS):
             if alloc[i][j]>0:
                 sub   = alloc[i][j]*cost_table[i][j]
                 grand += sub
                 rute  = f"{origin[i]} → {destination[j]}"
-                print(f"  {rute:<32} {alloc[i][j]:>8,}  "
-                      f"{cost_table[i][j]:>9,}  {sub:>14,}")
-    print(f"  {'─'*32} {'─'*8}  {'─'*9}  {'─'*14}")
-    print(f"  {'TOTAL COST':<32} {'':>8}  {'':>9}  {grand:>14,}")
-    print(f"\n  Total Cost VAM awal  : Rp {_total_cost(alloc_init):>13,.0f}")
-    print(f"  Total Cost Optimal   : Rp {grand:>13,.0f}")
-    diff = _total_cost(alloc_init) - grand
-    if diff > 0:
-        print(f"  Penghematan          : Rp {diff:>13,.0f}")
-    else:
-        print(f"  (Tidak ada penghematan — VAM sudah optimal)")
+                if show_details:
+                    print(f"  {rute:<32} {alloc[i][j]:>8,}  "
+                          f"{cost_table[i][j]:>9,}  {sub:>14,}")
+                routes.append((rute, alloc[i][j], cost_table[i][j], sub))
+    
+    if show_details:
+        print(f"  {'─'*32} {'─'*8}  {'─'*9}  {'─'*14}")
+        print(f"  {'TOTAL COST':<32} {'':>8}  {'':>9}  {grand:>14,}")
+        print(f"\n  Total Cost VAM awal  : Rp {_total_cost(alloc_init, cost_table, ROWS, COLS):>13,.0f}")
+        print(f"  Total Cost Optimal   : Rp {grand:>13,.0f}")
+        diff = _total_cost(alloc_init, cost_table, ROWS, COLS) - grand
+        if diff > 0:
+            print(f"  Penghematan          : Rp {diff:>13,.0f}")
+        else:
+            print(f"  (Tidak ada penghematan — VAM sudah optimal)")
+        print("="*70)
+    
+    return alloc, grand, itr
+
+# ============================================================
+# RUN - PROGRAM UTAMA
+# ============================================================
+
+if __name__ == "__main__":
+    start_time = time.time()
+    
+    # Definisi dimensi
+    ROWS = len(origin)
+    COLS = len(destination)
+    
     print("="*70)
-    return alloc, grand
+    print("  VERIFIKASI ALOKASI VAM MANUAL")
+    print("="*70)
+    _print_table(alloc_vam, cost_table, origin, destination, need_orig, 
+                availability_orig, ROWS, COLS, label="INPUT ALOKASI VAM MANUAL")
+    print()
+    valid = _verify(alloc_vam, origin, destination, need_orig, availability_orig, ROWS, COLS)
+    print(f"\n  Status : {'✓ Alokasi valid dan seimbang' if valid else '✗ Ada ketidakseimbangan'}")
 
-# ============================================================
-# RUN
-# ============================================================
-
-print("="*70)
-print("  VERIFIKASI ALOKASI VAM MANUAL")
-print("="*70)
-_print_table(alloc_vam, label="INPUT ALOKASI VAM MANUAL")
-print()
-valid = _verify(alloc_vam)
-print(f"\n  Status : {'✓ Alokasi valid dan seimbang' if valid else '✗ Ada ketidakseimbangan'}")
-
-stepping_stone(alloc_vam)
+    # Jalankan Stepping Stone
+    alloc_optimal, total_cost_optimal, iterations = stepping_stone(
+        origin, destination, cost_table, need_orig, availability_orig,
+        alloc_vam, ROWS, COLS, show_details=True
+    )
+    
+    end_time = time.time()
+    execution_time = end_time - start_time
+    
+    print("\n" + "="*70)
+    print("  RINGKASAN EKSEKUSI")
+    print("="*70)
+    print(f"  Jumlah iterasi       : {iterations}")
+    print(f"  ⏱ Waktu eksekusi     : {execution_time:.4f} detik")
+    print("="*70)
